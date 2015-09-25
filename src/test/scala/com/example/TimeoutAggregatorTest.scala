@@ -15,7 +15,11 @@ class TimeoutAggregatorTest extends TestKit(ActorSystem()) with FlatSpecLike
 
   val timeoutDuration = 5 seconds
 
-  "The agregator actor" should "receive Data1 and Data2 responses, and send a response" in new Context {
+  "The agregator actor" should "send the messages" in new Context {
+     storeProbe.expectMsg(Dependency1Request)
+     fileProbe.expectMsg(Dependency2Request)
+  }
+  it should "receive Data1 and Data2 responses, and send a response" in new Context {
     // when
     aggregator ! Dependency1Response(Data1Received)
     aggregator ! Dependency2Response(Data2OK)
