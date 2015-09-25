@@ -6,7 +6,9 @@ import akka.event.LoggingReceive
 
 import scala.concurrent.duration.FiniteDuration
 
-class SellerToolsAggregatorActor(dependency1: ActorRef, dependency2: ActorRef, timeout: FiniteDuration) extends Actor { import context.become
+class SellerToolsAggregatorActor(dependency1: ActorRef, dependency2: ActorRef, timeout: FiniteDuration) extends Actor {
+
+  import context.become
 
   override def preStart: Unit = {
     println(s"**************** preStart: $self")
@@ -35,67 +37,48 @@ class SellerToolsAggregatorActor(dependency1: ActorRef, dependency2: ActorRef, t
       val originalSender = sender()
       dependency1 ! Dependency1Request
       dependency2 ! Dependency2Request
-      become(receivedNothing(originalSender))
+      become(waitForResponse(originalSender))
+
   }
 
-  case object ReplyToSender
-  case object ChangeState
-  def receivedNothing(sender: ActorRef): Receive = LoggingReceive {
-    case r: Dependency1Response =>
-      println(self)
-      context.become(receivedStorePreferencesOnly(sender, r.s), true)
-      self ! ChangeState
-    case r: Dependency2Response =>
-      context.become(receivedFileSubscriptionOnly(sender, r.f), true)
-      self ! ChangeState
+  private var storePreferences: Option[StoreType] = None
+  private var fileExchangeSubscription: Option[SubscriptionStatus] = None
+
+  def waitForResponse(sender: ActorRef): Receive = {
+    case sp: Dependency1Response =>
+      storePreferences = Some(sp.s)
+      checkForAllData(sender, false)
+    case fes: Dependency2Response =>
+      fileExchangeSubscription = Some(fes.f)
+      checkForAllData(sender, false)
     case TimeOut =>
-      println(self)
-      context.become(timeoutWithNothing(sender), true)
-      self ! ReplyToSender
+      checkForAllData(sender, true)
+    case x =>
+      throw new RuntimeException( s"""received "${x }" unexpectedly""")
   }
 
-  def receivedStorePreferencesOnly(sender: ActorRef, s: StoreType): Receive = LoggingReceive.withLabel("receivedStorePreferences") {
-    case r: Dependency2Response =>
-      context.become(receivedStorePreferencesAndFileExchange(sender, s, r.f), true)
-      self ! ReplyToSender
-    case TimeOut =>
-      context.become(timeoutWithStorePreferencesOnly(sender, s), true)
-      self ! ReplyToSender
-    case ChangeState =>
-      println(self)
+  def checkForAllData(sender: ActorRef) = {}
 
-  }
-
-  def receivedFileSubscriptionOnly(sender: ActorRef, f: SubscriptionStatus): Receive = LoggingReceive.withLabel("receivedSubscription") {
-    case r: Dependency1Response =>
-      context.become(receivedStorePreferencesAndFileExchange(sender, r.s, f), true)
-      self ! ReplyToSender
-    case TimeOut =>
-      context.become(timeoutWithNothing(sender), true)
-      self ! ReplyToSender
-    case ChangeState =>
-  }
-
-  def receivedStorePreferencesAndFileExchange(sender: ActorRef, s: StoreType, f: SubscriptionStatus): Receive = LoggingReceive.withLabel("receivedBoth") {
-    case ReplyToSender =>
-      sender ! SellerToolsAggregatedResponse(s, f)
-      context.stop(self)
-  }
-
-  def timeoutWithNothing(sender: ActorRef): Receive = LoggingReceive.withLabel("timeoutWithNothing") {
-    case ReplyToSender =>
-      sender ! TimeOut
-      context.stop(self)
-  }
-
-  def timeoutWithStorePreferencesOnly(sender: ActorRef, s: StoreType): Receive = LoggingReceive.withLabel("timeoutWithStorePreferences") {
-    case ReplyToSender =>
-      sender ! SellerToolsAggregatedResponse(s, IndeterminateSubscriptionStatus)
-      context.stop(self)
+  def checkForAllData(sender: ActorRef, timedOut: Boolean): Unit = {
+    val (store, file, timeout) = (storePreferences, fileExchangeSubscription, timedOut)
+    (store, file, timeout) match {
+      case (Some(sp), Some(fes), false) =>
+        sender ! SellerToolsAggregatedResponse(sp, fes)
+        context.stop(self)
+      case (Some(sp), None, true) =>
+        sender ! SellerToolsAggregatedResponse(sp, IndeterminateSubscriptionStatus)
+        context.stop(self)
+      case (_, _, true) =>
+        sender ! TimeOut
+        context.stop(self)
+      case (_, _, false) =>
+        println("waiting...")
+    }
   }
 
 
   import context.dispatcher
+
   val timeoutMessager = context.system.scheduler.scheduleOnce(timeout, context.self, TimeOut)
 }
 
