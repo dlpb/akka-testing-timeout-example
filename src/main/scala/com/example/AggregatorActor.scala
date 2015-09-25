@@ -60,24 +60,6 @@ class AggregatorActor(dependency1: ActorRef, dependency2: ActorRef, timeout: Fin
   }
 
   def checkForAllData(sender: ActorRef, timedOut: Boolean): Unit = {
-<<<<<<< HEAD
-    val (store, file, timeout) = (storePreferences, fileExchangeSubscription, timedOut)
-    (store, file, timeout) match {
-      case (Some(sp), Some(fes), false) =>
-        sender ! SellerToolsAggregatedResponse(sp, fes)
-        timeoutMessager.cancel()
-        context.stop(self)
-      case (Some(sp), None, true) =>
-        sender ! SellerToolsAggregatedResponse(sp, IndeterminateSubscriptionStatus)
-        timeoutMessager.cancel()
-        context.stop(self)
-      case (_, _, true) =>
-        sender ! TimeOut
-        timeoutMessager.cancel()
-        context.stop(self)
-      case (_, _, false) =>
-        println("waiting...")
-=======
     val done = data.productIterator.forall(_.asInstanceOf[Option[_]].isDefined)
 
     if (done || timedOut) {
@@ -90,7 +72,6 @@ class AggregatorActor(dependency1: ActorRef, dependency2: ActorRef, timeout: Fin
 
       sender ! response
       context.stop(self)
->>>>>>> Clean up and simplification
     }
   }
 
