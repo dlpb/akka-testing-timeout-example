@@ -32,34 +32,34 @@ class AggregatorActor(dependency1: ActorRef, dependency2: ActorRef, timeout: Fin
     super.unhandled(msg)
   }
 
-  var data = Data(None, None)
-
   override def receive: Receive = LoggingReceive {
     case AggregationRequested =>
       val originalSender = sender()
       dependency1 ! Dependency1Request
       dependency2 ! Dependency2Request
-      become(waitForResponse(originalSender))
+      become(waitForResponse(originalSender, Data(None, None)))
   }
 
 
-  def waitForResponse(sender: ActorRef): Receive = {
+  def waitForResponse(sender: ActorRef, data: Data): Receive = {
     case d: Dependency1Response =>
-      data = data.copy(d1 = Some(d.s))
-      checkForAllData(sender, false)
+      val newData: Data = data.copy(d1 = Some(d.s))
+      become(waitForResponse(sender, newData))
+      checkForAllData(sender, false, newData)
 
     case d: Dependency2Response =>
-      data = data.copy(d2 = Some(d.f))
-      checkForAllData(sender, false)
+      val newData = data.copy(d2 = Some(d.f))
+      become(waitForResponse(sender, data.copy(d2 = Some(d.f))))
+      checkForAllData(sender, false, newData)
 
     case TimeOut =>
-      checkForAllData(sender, true)
+      checkForAllData(sender, true, data)
 
     case x =>
       throw new RuntimeException(s"""received "${x}" unexpectedly""")
   }
 
-  def checkForAllData(sender: ActorRef, timedOut: Boolean): Unit = {
+  def checkForAllData(sender: ActorRef, timedOut: Boolean, data: Data): Unit = {
     val done = data.productIterator.forall(_.asInstanceOf[Option[_]].isDefined)
 
     if (done || timedOut) {
