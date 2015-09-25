@@ -64,12 +64,15 @@ class SellerToolsAggregatorActor(dependency1: ActorRef, dependency2: ActorRef, t
     (store, file, timeout) match {
       case (Some(sp), Some(fes), false) =>
         sender ! SellerToolsAggregatedResponse(sp, fes)
+        timeoutMessager.cancel()
         context.stop(self)
       case (Some(sp), None, true) =>
         sender ! SellerToolsAggregatedResponse(sp, IndeterminateSubscriptionStatus)
+        timeoutMessager.cancel()
         context.stop(self)
       case (_, _, true) =>
         sender ! TimeOut
+        timeoutMessager.cancel()
         context.stop(self)
       case (_, _, false) =>
         println("waiting...")
