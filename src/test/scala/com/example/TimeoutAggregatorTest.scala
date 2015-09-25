@@ -10,14 +10,14 @@ import concurrent.duration._
 
 class TimeoutAggregatorTest extends TestKit(ActorSystem()) with FlatSpecLike
     with Matchers
-    with ImplicitSender
     with Eventually {
 
   val timeoutDuration = 5 seconds
 
   "The agregator actor" should "send the messages" in new Context {
-     storeProbe.expectMsg(Dependency1Request)
-     fileProbe.expectMsg(Dependency2Request)
+     data1Probe.expectMsg(Dependency1Request)
+     data2Probe.expectMsg(Dependency2Request)
+
   }
   it should "receive Data1 and Data2 responses, and send a response" in new Context {
     // when
@@ -25,7 +25,7 @@ class TimeoutAggregatorTest extends TestKit(ActorSystem()) with FlatSpecLike
     aggregator ! Dependency2Response(Data2OK)
 
     //then
-    expectMsgType[ AggregatedResponse ]
+    senderProbe.expectMsgType[ AggregatedResponse ]
   }
 
   it should "build up a response containing Data1 and Data2, and return a response" in new Context {
@@ -34,7 +34,7 @@ class TimeoutAggregatorTest extends TestKit(ActorSystem()) with FlatSpecLike
     aggregator ! Dependency2Response(Data2OK)
 
     //then
-    expectMsgPF(10 seconds) {
+    senderProbe.expectMsgPF(10 seconds) {
       case AggregatedResponse(Data1Received, Data2OK) =>
     }
   }
@@ -42,7 +42,7 @@ class TimeoutAggregatorTest extends TestKit(ActorSystem()) with FlatSpecLike
   it should "return an IndeterminedData1 when we dont get a response within the timeout limit" in new Context {
     aggregator ! Dependency1Response(Data1Received)
 
-    expectMsgPF(10 seconds) {
+    senderProbe.expectMsgPF(10 seconds) {
       case AggregatedResponse(Data1Received, IndeterminateData2) =>
     }
   }
@@ -50,7 +50,7 @@ class TimeoutAggregatorTest extends TestKit(ActorSystem()) with FlatSpecLike
   it should "return an IndeterminedData2 when we dont get a response within the timeout limit" in new Context {
     aggregator ! Dependency2Response(Data2OK)
 
-    expectMsgPF(10 seconds) {
+    senderProbe.expectMsgPF(10 seconds) {
       case AggregatedResponse(IndeterminateData1, Data2OK) =>
     }
   }
@@ -58,15 +58,12 @@ class TimeoutAggregatorTest extends TestKit(ActorSystem()) with FlatSpecLike
   it should "time out when we dont get all responses within 3 seconds" in new Context {
 
     //then
-    expectMsgPF(10 seconds) {
+    senderProbe.expectMsgPF(10 seconds) {
       case AggregatedResponse(IndeterminateData1, IndeterminateData2) =>
     }
   }
 
   it should "stop the actor once the message has been sent" in new Context {
-
-    var terminated = false
-
     val watcher = TestProbe()
     watcher.watch(aggregator)
 
@@ -74,15 +71,17 @@ class TimeoutAggregatorTest extends TestKit(ActorSystem()) with FlatSpecLike
     aggregator ! Dependency2Response(Data2OK)
 
     //then
-    expectMsgType[ AggregatedResponse ]
+    senderProbe.expectMsgType[ AggregatedResponse ]
     watcher.expectMsgType[ Terminated ]
   }
 
   trait Context {
-    val storeProbe = TestProbe()
-    val fileProbe = TestProbe()
+    val data1Probe = TestProbe()
+    val data2Probe = TestProbe()
 
-    val aggregator = system.actorOf(AggregatorActor.props(storeProbe.ref, fileProbe.ref, timeoutDuration))
+    val aggregator = system.actorOf(AggregatorActor.props(data1Probe.ref, data2Probe.ref, timeoutDuration))
+    implicit val senderProbe = TestProbe()
+    implicit val sender = senderProbe.ref
 
     //when
     aggregator ! AggregationRequested
