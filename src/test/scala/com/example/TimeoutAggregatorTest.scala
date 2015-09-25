@@ -1,7 +1,7 @@
 package com.example
 
-import akka.actor.{Terminated, Actor, Props, ActorSystem}
-import akka.testkit.{ImplicitSender, TestProbe, TestKit}
+import akka.actor.{ Terminated, Actor, Props, ActorSystem }
+import akka.testkit.{ ImplicitSender, TestProbe, TestKit }
 import org.scalatest.FlatSpecLike
 import org.scalatest.Matchers
 import org.scalatest.concurrent.Eventually
@@ -9,46 +9,53 @@ import org.scalatest.concurrent.Eventually
 import concurrent.duration._
 
 class TimeoutAggregatorTest extends TestKit(ActorSystem()) with FlatSpecLike
-                                    with Matchers
-                                    with ImplicitSender
-                                    with Eventually {
-
+    with Matchers
+    with ImplicitSender
+    with Eventually {
 
   val timeoutDuration = 5 seconds
 
-  "Seller tools agregator actor" should "receive an store prefences and file exchange subscription response, and send a response" in new Context {
+  "The agregator actor" should "receive Data1 and Data2 responses, and send a response" in new Context {
     // when
-    sellerToolsAggregatorActor ! Dependency1Response(NextGenStoreType)
-    sellerToolsAggregatorActor ! Dependency2Response(SubscribedToFileExchange)
+    aggregator ! Dependency1Response(Data1Received)
+    aggregator ! Dependency2Response(Data2OK)
 
     //then
-    expectMsgType[SellerToolsAggregatedResponse]
+    expectMsgType[ AggregatedResponse ]
   }
 
-  it should "build up a response containing orders, cancellation, and return data" in new Context {
+  it should "build up a response containing Data1 and Data2, and return a response" in new Context {
 
-    sellerToolsAggregatorActor ! Dependency1Response(NextGenStoreType)
-    sellerToolsAggregatorActor ! Dependency2Response(SubscribedToFileExchange)
+    aggregator ! Dependency1Response(Data1Received)
+    aggregator ! Dependency2Response(Data2OK)
 
     //then
-    val result = expectMsgType[SellerToolsAggregatedResponse]
-    result.storeType should be(NextGenStoreType)
-    result.fileExchangeSubscriptionStatus should be(SubscribedToFileExchange)
+    expectMsgPF(10 seconds) {
+      case AggregatedResponse(Data1Received, Data2OK) =>
+    }
   }
 
-  it should "return an IndeterminedFileExchangeSubscription when we dont get a response within the timeout limit" in new Context {
-    sellerToolsAggregatorActor ! Dependency1Response(NextGenStoreType)
+  it should "return an IndeterminedData1 when we dont get a response within the timeout limit" in new Context {
+    aggregator ! Dependency1Response(Data1Received)
 
     expectMsgPF(10 seconds) {
-      case SellerToolsAggregatedResponse(NextGenStoreType, IndeterminateSubscriptionStatus) =>
+      case AggregatedResponse(Data1Received, IndeterminateData2) =>
+    }
+  }
+
+  it should "return an IndeterminedData2 when we dont get a response within the timeout limit" in new Context {
+    aggregator ! Dependency2Response(Data2OK)
+
+    expectMsgPF(10 seconds) {
+      case AggregatedResponse(IndeterminateData1, Data2OK) =>
     }
   }
 
   it should "time out when we dont get all responses within 3 seconds" in new Context {
 
     //then
-    within(250 milliseconds, 120 seconds) {
-      expectMsg(TimeOut)
+    expectMsgPF(10 seconds) {
+      case AggregatedResponse(IndeterminateData1, IndeterminateData2) =>
     }
   }
 
@@ -56,35 +63,25 @@ class TimeoutAggregatorTest extends TestKit(ActorSystem()) with FlatSpecLike
 
     var terminated = false
 
-    system.actorOf(Props(new Actor {
-      context.watch(sellerToolsAggregatorActor)
+    val watcher = TestProbe()
+    watcher.watch(aggregator)
 
-      override def receive: Receive = {
-        case Terminated(_) => terminated = true
-      }
-    }))
-
-
-
-    sellerToolsAggregatorActor ! Dependency1Response(NextGenStoreType)
-    sellerToolsAggregatorActor ! Dependency2Response(SubscribedToFileExchange)
+    aggregator ! Dependency1Response(Data1Received)
+    aggregator ! Dependency2Response(Data2OK)
 
     //then
-    expectMsgType[SellerToolsAggregatedResponse]
-    withClue("Expecting the actor to be terminated eventually") {
-      eventually { terminated should be(true) }
-    }
-
+    expectMsgType[ AggregatedResponse ]
+    watcher.expectMsgType[ Terminated ]
   }
 
   trait Context {
     val storeProbe = TestProbe()
     val fileProbe = TestProbe()
 
-    val sellerToolsAggregatorActor = system.actorOf(SellerToolsAggregatorActor.props(storeProbe.ref, fileProbe.ref, timeoutDuration))
+    val aggregator = system.actorOf(AggregatorActor.props(storeProbe.ref, fileProbe.ref, timeoutDuration))
 
     //when
-    sellerToolsAggregatorActor ! SellerToolsAggregationRequested
+    aggregator ! AggregationRequested
   }
 
 }
